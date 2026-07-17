@@ -1,0 +1,1 @@
+# averaged_spin_dynamics
