@@ -1,14 +1,9 @@
-"""
-used equations
-  ᾱ̇  = (M̄_y + H̄ n cos ᾱ cos β̄) / (H̄ sin β̄)                              (Eq. 16)
-  β̄̇  = (M̄ₓ + H̄ n sin ᾱ) / H̄                                            (Eq. 17)
-  H̄̇  = M̄_z                                                               (Eq. 18)
-  Ī̇_d = −(2 Ī_d/H̄)[...]                                                   (Eq. 19)
-  ω̄̇_e = (1/Ī_d)[ M̄_z − (H̄/Ī_d) Ī̇_d ]                                    (Eq. 20)
-"""
+
 using DifferentialEquations
 
 const MEAN_MOTION = 2π / SECONDS_PER_YEAR   # [rad s⁻¹]  (= 0.9856°/day)
+#slug dissipation parameter defined in B&S 2022
+const MAX_MU_OVER_J = 1e-3   # [s⁻¹]
 
 function averaged_eom(state::OsculatingState, I::PrincipalInertias,
                       shape::ShapeModel, cfg::PerturbationConfig;
@@ -19,8 +14,6 @@ function averaged_eom(state::OsculatingState, I::PrincipalInertias,
     regime = classify_regime(Id, I)
 
     # ── YORP: averaged SRP torque (B&S 2021 Eqs. 16–19) ──
-    # Backend per cfg.srp_backend: :numeric (M3, true-illumination quadrature)
-    # or :analytic (M6, closed-form App. B averages; regular at the separatrix).
     at = if cfg.srp
         if cfg.srp_backend === :numeric
             averaged_srp_torques(shape, β, ωe, Id, I, regime;
@@ -52,8 +45,38 @@ function averaged_eom(state::OsculatingState, I::PrincipalInertias,
     # ── Dissipation: adds h_d to İ_d (B&S 2022 Eqs. 18, 38); h_d ≥ 0 ──
     hd = cfg.dissipation ? h_d(ωe, Id, I, regime, cfg.μ, cfg.J) : 0.0
 
+    # h_d ≥ 0 is a physical requirement, not a convention: internal dissipation
+    # burns rotational kinetic energy at constant H, and I_d = H²/2T, so T↓ forces
+    # I_d↑ (relaxation toward uniform rotation about the max-inertia axis).
+    # h_d < 0 would be dissipation *creating* kinetic energy — thermodynamically
+    # impossible, and in practice a symptom of μ/J past MAX_MU_OVER_J or a sign
+    # error in the t_ij coefficients.  Tiny negatives are roundoff and clamped.
+    if hd < 0
+        if hd > -1e-12 * Id
+            hd = 0.0
+        else
+            error("averaged_eom: h_d = $hd < 0 violates the second law " *
+                  "(dissipation cannot decrease I_d).  State: ωe=$ωe, Id=$Id, " *
+                  "regime=$(typeof(regime)), μ=$(cfg.μ), J=$(cfg.J), " *
+                  "μ/J=$(cfg.μ/cfg.J) s⁻¹ (bound $MAX_MU_OVER_J).")
+        end
+    end
+
     Il, Ii, Is = I.Il, I.Ii, I.Is
     sβ = sin(β)
+
+    # Coordinate pole, not a physical singularity: (α,β) are spherical coordinates
+    # of Ĥ in the O frame, so α is undefined when Ĥ lies on the sun/antisun line
+    # (β = 0, π) exactly as longitude is undefined at a pole.  H itself is fine.
+    # B&S 2021 §V note the same and suggest the (v,w) coordinates that `to_vw` /
+    # `from_vw` implement.  Warned, not errored: B&S report never encountering it
+    # in practice, and a transient near-pole pass is harmless.
+    if sinβ_prev(β)
+        @warn "averaged_eom: β = $β rad is within sinβ_guard tolerance of the " *
+              "α coordinate pole (β = 0 or π); α̇ ∝ 1/sinβ is numerically " *
+              "singular there.  α output is unreliable for this stretch — " *
+              "consider the (v,w) coordinates (`to_vw`/`from_vw`)." maxlog = 1
+    end
 
     α̇  = (M̄y + L̄y + H * n * cos(α) * cos(β)) / (H * sβ)             # Eq. 35
     β̇  = (M̄x + L̄x + H * n * sin(α)) / H                             # Eq. 36
@@ -85,6 +108,18 @@ function propagate_averaged(I::PrincipalInertias, state0::OsculatingState, tspan
         "got :$(cfg.srp_backend).  The :fourier backend is M7.")
     cfg.resonant && error(
         "resonant averaged dynamics are gated (FLAG-RESONANCE); set cfg.resonant=false.")
+
+    # Averaged-dissipation validity bound (CLAUDE.md; B&S 2022 §II.C).  Checked
+    # only when dissipation is actually on.  Relative tolerance so the documented
+    # figure configurations sitting exactly at μ/J = 1e-3 are not rejected.
+    if cfg.dissipation
+        μJ = cfg.μ / cfg.J
+        μJ <= MAX_MU_OVER_J * (1 + 1e-9) || error(
+            "dynamics_averaged: μ/J = $μJ s⁻¹ exceeds the averaged-dissipation " *
+            "validity bound of $MAX_MU_OVER_J s⁻¹ (μ=$(cfg.μ), J=$(cfg.J)).  " *
+            "Above it the steady-state slug relation σ ≈ [A]ω breaks and h_d is " *
+            "invalid.  Reduce μ or raise J; do not sweep past this bound.")
+    end
 
     u0   = to_svector(state0)
     p    = (I, shape, cfg, n, N_φ, N_τ, P_SRP)

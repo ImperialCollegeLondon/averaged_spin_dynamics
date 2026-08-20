@@ -85,8 +85,8 @@ end
 
 
 # Geocentric frame -------------------------------------------------------------------------------
-"necessary for the gravity gradient torque from B&S 2022 to be calculated"
-"getting the geocentric frame from the orbital elements"
+"""necessary for the gravity gradient torque from B&S 2022 to be calculated 
+getting the geocentric frame from the orbital elements"""
 function G_from_orbel(Ω::Real, i::Real)
     R1(i)*R3(Ω)
 end

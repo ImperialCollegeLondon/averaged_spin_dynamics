@@ -148,6 +148,7 @@ function torquefree_params_SAM(ωe::Real, Id::Real, I::PrincipalInertias)
     n_param = (Il / Is) * (Is - Id) / (Id - Il)
 
     return k, n_param, τ_rate, B₁, B₂, B₃
+end
 
 #body rates/ ang vel components seen in A2 and A11
 #LAM
@@ -184,7 +185,7 @@ function tumbling_periods(ωe::Real, Id::Real, I::PrincipalInertias, ::LAM)
     k, n, τ_rate, _, _, _ = torquefree_params_LAM(ωe, Id, I)
     Kval = elliptic_K(k)
     Πc   = elliptic_Pi_complete(n, k)                       # Π(K; n)
-    P_φ  = (2π / ωe) * (Il / Id) * (1 - (Is - Il) / Is * Πc / Kval))  # A9
+    P_φ  = (2π / ωe) * (Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)  # A9
     P_ψ  = 4Kval / τ_rate                                   # A10
     return P_φ, P_ψ
 end
@@ -194,7 +195,7 @@ function tumbling_periods(ωe::Real, Id::Real, I::PrincipalInertias, ::SAM)
     k, n, τ_rate, _, _, _ = torquefree_params_SAM(ωe, Id, I)
     Kval = elliptic_K(k)
     Πc   = elliptic_Pi_complete(n, k)
-    P_φ  = (2π / ωe)*(Il / Id) * (1 - (Is - Il) / Is * Πc / Kval))  # A9 with A13 n
+    P_φ  = (2π / ωe)*(Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)  # A9 with A13 n
     P_ψ  = 4Kval / τ_rate                                   # A15
     return P_φ, P_ψ
 end
@@ -250,4 +251,3 @@ function az_squared_averages(ωe::Real, Id::Real, I::PrincipalInertias,
     end
     return sum_ / N_τ
 end
-

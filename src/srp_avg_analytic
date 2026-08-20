@@ -344,3 +344,82 @@ function _avg_g_az_delta(ℓ::Integer, n, r, ux::Real, uz::Real, az::AzMoments)
         end
     end
 end
+
+# Averaged torque assembly (B&S 2021 Eqs. 21–26) 
+# bringing everything together
+
+function averaged_srp_torques_analytic(shape::ShapeModel, β::Real, Id::Real,
+                                       I::PrincipalInertias, regime::Regime;
+                                       P_SRP::Real = P_SRP_1AU, σ::Integer = 1)
+    az = az_moments(Id, I, regime; σ = σ)
+    ux, uz = -sin(β), cos(β)
+
+    Mx = My = Mz = 0.0
+    azM = MVector{3,Float64}(0.0, 0.0, 0.0)
+
+    for fc in shape.facets
+        n = fc.normal
+        r = fc.centroid
+        d = cross(r, n)                                # d = r × n̂ (Eq. 22)
+        cs = 2 * fc.ρ * fc.s                           # Eq. 22
+        ca = 1 - fc.ρ * fc.s                           # Eq. 22
+        cd = B_LAMBERT * (1 - fc.s * fc.ρ)             # Eq. 11 (= B(1−s)ρ + B(1−ρ))
+        w  = P_SRP * fc.area
+
+        c1 = ux * (cd/2 + cs/(3π))
+        c2 = ux * uz * (cs + 8cd/(3π))
+        c3 = (4/(3π)) * cs * ux^3
+        c4 = (4/π) * cs * ux * uz^2
+
+        # Eq. 23
+        Mx -= w * ( c1*_avg_fxnx(d, n, az) + c2*_avg_fxnxnz(d, n, az) +
+                    c3*_avg_fxnx3(d, n, az) + c4*_avg_fxnxnz2(d, n, az) +
+                    (1/2)*ca*ux*uz*_avg_fynx(r, n, az) +
+                    (8/(3π))*ca*ux*uz^2*_avg_fynxnz(r, n, az) )
+
+        # Eq. 24
+        My -= w * ( c1*_avg_fynx(d, n, az) + c2*_avg_fynxnz(d, n, az) +
+                    c3*_avg_fynx3(d, n, az) + c4*_avg_fynxnz2(d, n, az) +
+                    (1/(3π))*ca*ux*_avg_fz(r, n, az) -
+                    (1/2)*ca*ux*uz*_avg_fxnx(r, n, az) +
+                    (1/2)*ca*ux*uz*_avg_fznz(r, n, az) -
+                    (8/(3π))*ca*ux*uz^2*_avg_fxnxnz(r, n, az) +
+                    (4/(3π))*ca*ux^3*_avg_fznx2(r, n, az) +
+                    (4/(3π))*ca*ux*uz^2*_avg_fznz2(r, n, az) )
+
+        # Eq. 25
+        Mz -= w * ( (1/(3π))*cd*_avg_fz(d, n, az) +
+                    uz*(cd/2 + cs/(3π))*_avg_fznz(d, n, az) +
+                    (cs/2 + 4cd/(3π)) *
+                        (ux^2*_avg_fznx2(d, n, az) + uz^2*_avg_fznz2(d, n, az)) +
+                    (4/π)*cs*ux^2*uz*_avg_fznx2nz(d, n, az) +
+                    (4/(3π))*cs*uz^3*_avg_fznz3(d, n, az) -
+                    (1/2)*ca*ux^2*_avg_fynx(r, n, az) -
+                    (8/(3π))*ca*ux^2*uz*_avg_fynxnz(r, n, az) )
+
+        # Eq. 26: mask d to component ℓ to retain the d_ℓ terms.
+        for ℓ in 1:3
+            dm = SVector{3,Float64}(ℓ == 1 ? d[1] : 0.0,
+                                    ℓ == 2 ? d[2] : 0.0,
+                                    ℓ == 3 ? d[3] : 0.0)
+            azM[ℓ] -= w * ( (1/(3π))*cd*_avg_fz(dm, n, az) +
+                            uz*(cd/2 + cs/(3π))*_avg_fznz(dm, n, az) +
+                            (cs/2 + 4cd/(3π)) *
+                                (ux^2*_avg_fznx2(dm, n, az) +
+                                 uz^2*_avg_fznz2(dm, n, az)) +
+                            (4/π)*cs*ux^2*uz*_avg_fznx2nz(dm, n, az) +
+                            (4/(3π))*cs*uz^3*_avg_fznz3(dm, n, az) +
+                            ca*_avg_g_az_delta(ℓ, n, r, ux, uz, az) )
+        end
+    end
+    return AveragedTorques(SVector{3,Float64}(Mx, My, Mz),
+                           SVector{3,Float64}(azM[1], azM[2], azM[3]))
+end
+
+
+function averaged_srp_torques_analytic(shape::ShapeModel, state::OsculatingState,
+                                       I::PrincipalInertias; kwargs...)
+    regime = classify_regime(state.Id, I)
+    return averaged_srp_torques_analytic(shape, state.β, state.Id, I, regime;
+                                         kwargs...)
+end
