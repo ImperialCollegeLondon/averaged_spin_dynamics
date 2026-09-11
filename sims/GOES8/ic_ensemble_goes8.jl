@@ -1,92 +1,17 @@
-#=
-ic_ensemble_goes8.jl — RQ1: IS THE INITIAL CONDITION FORGOTTEN, AND HOW FAST?
 
-WHY THIS EXISTS RATHER THAN A RE-READ OF exp9_goes8_sweep.csv.
-The brief asked me to check whether an existing sweep varies initial conditions
-broadly "not just J".  It does — partly.  exp9 varies β₀ (6), I_d0 (18) and P_e
-(3), so the premise "it only varies J at one fixed IC" is WRONG and is recorded
-as such.  But three things in exp9 make it unable to answer RQ1 as posed:
-
-  1. α₀ IS NEVER VARIED.  Every exp9 row starts at α₀ = 0.  α is one of the two
-     coordinates of Ĥ in the O frame, so an ensemble that holds it fixed cannot
-     show that the ensemble forgets its initial ORIENTATION — only its initial
-     energy partition and spin rate.  (The one script in this repo that does
-     draw α₀ is sims/Mass Sensitivity/inertia_sweep.jl, which has never been
-     run — see [FLAG-EXP10-UNRUNNABLE] in this file's ledger.)
-  2. exp9's HORIZON IS 20 yr, not 100.  Its header justifies that from GOES-8's
-     ~4 yr YORP settling, which is a fair argument about the ATTRACTOR but not
-     about the SPREAD: "forgotten" is a statement about the ensemble's dispersion
-     as a function of time, and it needs the full RQ1 horizon to be stated.
-  3. exp9's GRID IS A LATTICE, not a sample.  A full factorial over 6×18×3 makes
-     every marginal distribution an artefact of the axis spacing.  A distribution
-     plot (Figure 4) needs draws, not lattice points.
-
-So this is a new ensemble with the SAME physics configuration as exp9 (GOES-8,
-θ_sa = 17°, :bs optics, GEO graveyard, full perturbation set) and a genuinely
-sampled initial condition, over the full RQ1 horizon.
-
-WHAT THIS SCRIPT PRODUCES.  Four figures' worth of data, in three blocks:
-
-  block "main"     Figures 4, 5, 7 — 96 LHS initial conditions × 6 J × 2 μ/J,
-                   σ = −1.  The dispersion-vs-time of ω̄_e within this block IS
-                   the RQ1 measurement.
-  block "sigma"    Figure 6 — the σ question, run at ICs drawn specifically
-                   NEAR the separatrix, plus a far-from-separatrix control.
-  block "backend"  a replicate of the main ICs on the :numeric SRP backend.
-                   [FLAG-BACKEND-SPLIT] (below) makes this mandatory, not
-                   optional.
-
-TWO TIME SERIES PER CASE, NOT JUST AN ENDPOINT.  "Forgotten" is a claim about
-when the ensemble collapses, so ω̄_e, I_d and β are written on a shared
-log-spaced time grid to ic_ensemble_goes8_series.csv.  The endpoint-only CSV
-cannot answer "how fast".
-
-────────────────────────────────────────────────────────────────────────────────
-[FLAG-BACKEND-SPLIT] — READ BEFORE TRUSTING ANY NUMBER OUT OF THIS FILE.
-
-sims/Figures/ (Phase 2) established that the two averaged-SRP backends are not
-interchangeable: against the full Euler truth model for GOES-8, :numeric tracks
-it and :analytic does not, yet :analytic is what exp9, telstar_sweep.jl,
-inertia_sweep.jl and the Skynet scripts all use.
-
-This script does NOT resolve that.  It measures how much it matters FOR THE RQ1
-CONCLUSION, which is a different and cheaper question than "which backend is
-right".  The main block stays on :analytic so its results sit alongside the rest
-of the repo; the "backend" block re-runs the same 96 ICs on :numeric at the
-reference dissipation.  If both blocks forget the initial condition on the same
-timescale, the RQ1 answer is backend-robust even though the attractor VALUE is
-not — and that is the claim this ensemble is entitled to make.
-
-The Phase-2 comparison was run WITHOUT dissipation, so it is not evidence about
-this configuration.  That is exactly why the replicate is run rather than argued.
-────────────────────────────────────────────────────────────────────────────────
-
-Run:  julia -t auto --project=. "sims/GOES8/ic_ensemble_goes8.jl"
-Writes sims/GOES8/ic_ensemble_goes8.csv        (one row per case)
-       sims/GOES8/ic_ensemble_goes8_series.csv (time series, shared grid)
-=#
 
 include(joinpath(@__DIR__, "..", "..", "src", "master.jl"))
 using .master
 using StaticArrays, LinearAlgebra, Printf, Random
-# Explicit, because several loaded packages export `DiscreteCallback`/`CallbackSet`
-# and a bare `using DifferentialEquations` makes the name ambiguous in Main.
-# inertia_sweep.jl:63 imports CallbackSet the same way.
+
 using DifferentialEquations: DiscreteCallback, CallbackSet, terminate!
 
-# NOT `const`: `I` is also exported by LinearAlgebra, and a const binding would
-# collide.  exp9 (GOES8_sim) and exp11 (telstar_sweep.jl) both use this plain
-# form, so this matches the siblings rather than inventing a third convention.
+
 I  = goes8_inertia()
 SH = goes8_shape_full(; θ_sa = deg2rad(17), optical = :bs)
 
-# ══════════════════════════════════════════════════════════════════════════════
 # GRID — edit here
-# ══════════════════════════════════════════════════════════════════════════════
-# RQ1_SMOKE=1 shrinks every axis so the whole script — including the CSV writers
-# and the summary tables — can be exercised end to end in under a minute.  It is
-# a plumbing test, NOT a result: an ensemble this small cannot support a
-# dispersion statistic, and the run banner says so.
+
 const SMOKE = get(ENV, "RQ1_SMOKE", "0") == "1"
 
 const YEARS   = SMOKE ? 2.0 : 100.0        # RQ1 horizon (NOT exp9's 20 — see header)
@@ -101,24 +26,13 @@ const J_REF, MUoJ_REF = 1.8, 1.0e-3             # B&S 2022 Fig. 9 reference poin
 const JS_BACKEND = SMOKE ? [1.8] : [0.1, 1.8, 10.0]             # J values re-run on :numeric — the
                                                 # ends of exp9's range plus the middle
 
-# IC ranges.  β₀ and P_e reuse inertia_sweep.jl's exp6-derived ranges verbatim so
-# the two ensembles are comparable; α₀ is the axis exp9 never had.
+
 const ALPHA_RANGE_DEG = (0.0, 360.0)
 const BETA_RANGE_DEG  = (15.0, 165.0)
-const PE_RANGE_MIN    = (30.0, 480.0)      # log-uniform [FLAG-EXP10-PE]
+const PE_RANGE_MIN    = (30.0, 480.0)      # log-uniform [
 
-# I_d0 covers each band by FRACTION, exp9's spacing rationale: for GOES-8 LAM is
-# 94.7% of the I_d axis and SAM 5.3%, so a uniform-in-I_d draw would barely
-# sample SAM — where the attractor lives.
 const BAND_FRAC_RANGE = (0.05, 0.95)       # kept off 0 (uniform spin) and 1 (separatrix)
 
-# "NEAR THE SEPARATRIX" — the operational definition Figure 6 reports against.
-# Distance is measured as a fraction of the FULL I_d axis, (I_s − I_l), not of
-# I_i: the axis is what a trajectory has to traverse, and it is the only
-# normalisation that means the same thing for GOES-8 (narrow SAM) and Telstar
-# (wide SAM).  0.02 is 2% of that axis = 72 kg m² for GOES-8, ~1/3 of its whole
-# SAM band — wide enough to hold a sample, narrow enough that every draw is
-# inside the region where P_ψ diverges and the σ branch is undetermined.
 const D_SEP_NEAR = 0.02
 d_sep(Id) = abs(Id - I.Ii) / (I.Is - I.Il)
 
@@ -128,20 +42,15 @@ const SIGMA_MAIN = -1                      # exp9's value, for continuity
 const R_ORB, I_ORB, OMEGA_ORB = 4.2575e7, 0.0, 0.0
 const WE_FLOOR, WE_CEILING = 1e-8, 1.0
 const EPS_BETA_MAX = 1.0                   # ε_β above this ⇒ outside the domain
-const SEP_TOL      = 1e-4                  # relative |I_d − I_i| counted as "on it"
+const SEP_TOL      = 1e-4                  # relative |I_d − I_i| 
 const N_SCAN       = 400                   # samples/trajectory for the ε_β scan
-const N_PHI, N_TAU = 30, 60                # :numeric quadrature (exp9's setting)
+const N_PHI, N_TAU = 30, 60                # :numeric quadrature 
 
-# Wall-clock caps per propagation — see budget_callback's docstring for why a
-# time cap and not `maxiters`.  Sized off measurement, not taste: a completed
-# 100 yr GOES-8 run is 0.43 s on :analytic and 197 s on :numeric at (30,60), so
-# these are ~100× and ~5× the honest cost.  A run that hits them was not going
-# to finish.
+
 const BUDGET_ANALYTIC_S = SMOKE ? 20.0 :  45.0
 const BUDGET_NUMERIC_S  = SMOKE ? 60.0 : 900.0
 
-# Shared time grid for the series CSV: log-spaced, because the whole question is
-# a collapse that happens early.  t = 0 prepended explicitly.
+
 const N_SERIES = 120
 const T_GRID_YR = [0.0; exp.(range(log(1e-3), log(YEARS), length = N_SERIES - 1))]
 
@@ -151,23 +60,13 @@ const OUT_SERIES = joinpath(@__DIR__, SMOKE ? "smoke_ic_ensemble_goes8_series.cs
 lam_frac(f) = I.Il + f * (I.Ii - I.Il)
 sam_frac(f) = I.Ii + f * (I.Is - I.Ii)
 
-# ══════════════════════════════════════════════════════════════════════════════
 # Sampling
-# ══════════════════════════════════════════════════════════════════════════════
+
 """
     maximin_lhs(n, d; ncand, rng) → (X::Matrix (d×n), min_dist)
 
 Latin hypercube design selected on the maximin criterion.
 
-WRITTEN OUT RATHER THAN CALLED.  inertia_sweep.jl builds the same design from
-QuasiMonteCarlo.jl, and its own docstring records why that is only a starting
-point: `LatinHypercubeSample` there is a plain random LHS with no maximin
-option, so the maximin selection is applied on top by hand either way.  Since
-the library call contributes nothing but a dependency — and QuasiMonteCarlo is
-NOT in this repo's Project.toml, which is one of the two reasons inertia_sweep.jl
-cannot currently run — the plain-LHS construction is inlined here from `Random`
-(stdlib).  The construction is identical: stratify each dimension into n bins,
-permute independently, jitter within the bin.       [FLAG-RQ1-LHS-INLINED]
 """
 function maximin_lhs(n::Int, d::Int; ncand::Int = 400,
                      rng::AbstractRNG = MersenneTwister(IC_SEED))
@@ -214,8 +113,7 @@ n initial conditions drawn NEAR the separatrix, half on each side.
 The band fraction is mapped so that |I_d0 − I_i|/(I_s − I_l) lands uniformly in
 (0, D_SEP_NEAR).  The two bands have very different widths for GOES-8, so this
 is done in absolute I_d and then converted, rather than by shrinking each band's
-fraction range — otherwise the LAM side would sit ~18× further from I_i than the
-SAM side at the same nominal "fraction".
+fraction range.
 """
 function separatrix_draws(n::Int; seed::Int = IC_SEED + 1)
     U, _ = maximin_lhs(n, 4; ncand = 60, rng = MersenneTwister(seed))
@@ -235,9 +133,9 @@ function separatrix_draws(n::Int; seed::Int = IC_SEED + 1)
     end
 end
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # One propagation
-# ══════════════════════════════════════════════════════════════════════════════
+
 make_cfg(J, μoJ, σ, backend) =
     PerturbationConfig(srp = true, dissipation = true, gravity_gradient = true,
                        μ = μoJ * J, J = J,
@@ -268,14 +166,7 @@ function trajectory_scan(sol, cfg)
     return εmax, t_exit, dmin, ncross
 end
 
-"""
-Sample the solution on the SHARED log time grid.
 
-Points beyond the solution's own end (a terminated run) are written as NaN
-rather than held at the last value: a despun run has no ω̄_e at 100 yr, and
-carrying the final value forward would silently pull the ensemble's dispersion
-down at exactly the times the dispersion is the measurement.
-"""
 function series_sample(sol)
     te = sol.t[end]
     out = Vector{NTuple{5,Float64}}(undef, length(T_GRID_YR))
@@ -291,24 +182,7 @@ function series_sample(sol)
     return out
 end
 
-"""
-Terminate a propagation that has spent more than `budget` seconds of WALL CLOCK.
 
-WHY THIS IS NEEDED, MEASURED NOT GUESSED.  A trajectory that grazes I_d = I_i
-drives P_ψ → ∞ and the averaged RHS with it; Tsit5 responds by shrinking the
-step without bound, so `maxiters = 1e7` is not a usable bound — the run neither
-finishes nor errors.  A smoke run of this script sat at 24/32 cases for 11
-minutes on exactly the near-separatrix block.  inertia_sweep.jl's header records
-the same behaviour from the other direction ([FLAG-EXP10-CALLBACKS]: "both
-ContinuousCallbacks hang on a grazing trajectory; 0.12 yr run did not finish in
-9 min"), and its author's response was to remove the callbacks — which does not
-help here, because the stall is in the stepper, not the callbacks.
-
-A wall-clock cap is an honest instrument as long as it is REPORTED: a capped run
-is written with `timed_out = 1`, its own `t_end_yr`, and NaN in the series beyond
-that time.  It is not silently treated as a completed 100-year run, and it is not
-dropped.                                                 [FLAG-RQ1-WALLCAP]
-"""
 function budget_callback(budget::Real)
     t0 = time()
     return DiscreteCallback((u, t, integ) -> time() - t0 > budget,
@@ -341,14 +215,7 @@ end
 final_regime(Id) = abs(Id - I.Ii) / I.Ii < SEP_TOL ? "near-separatrix" :
                    (classify_regime(Id, I) isa LAM ? "LAM" : "SAM")
 
-"""
-Did this run stop because it ran out of WALL CLOCK rather than for a physical
-reason?  Inferred rather than plumbed out of the callback: the run failed to
-reach the horizon AND spent essentially its whole budget.  The 0.95 slack covers
-the trailing `trajectory_scan`/`series_sample` work that `wall` also includes.
-A `:despin` or `:spinup` run terminates early too, but in milliseconds of budget,
-so it is not caught by this test.
-"""
+
 function timed_out(r)
     r.out === nothing && return 0
     r.out.reached_horizon && return 0
@@ -356,9 +223,9 @@ function timed_out(r)
     return r.wall >= 0.95 * budget ? 1 : 0
 end
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # Case list
-# ══════════════════════════════════════════════════════════════════════════════
+
 const ICS_MAIN = ensemble_draws(N_IC)
 const ICS_SEP  = separatrix_draws(N_SEP)
 
@@ -387,66 +254,21 @@ for (k, ic) in enumerate(ICS_MAIN), σ in SIGMAS_SEP
     σ == SIGMA_MAIN && continue          # already in "main" at (J_REF, MUoJ_REF)
     push!(cases, Case("sigma_far", k, ic, J_REF, MUoJ_REF, σ, :analytic))
 end
-# backend — the [FLAG-BACKEND-SPLIT] replicate.
-# N_IC_BACKEND < N_IC because :numeric costs ~460x what :analytic does per run
-# (0.43 s vs 197 s for 100 yr, measured).  48 of the 96 ICs across all three J
-# values is 144 runs ~= 8 CPU-hours; the full 96 would be 16.  The subset is the
-# first 48 LHS draws, which an LHS stratifies in every dimension, so it is a
-# coverage-preserving thinning rather than an arbitrary truncation.
+
 const N_IC_BACKEND = parse(Int, get(ENV, "RQ1_NIC_BACKEND", "48"))
 for (k, ic) in enumerate(ICS_MAIN), J in JS_BACKEND
     k <= N_IC_BACKEND || continue
     push!(cases, Case("backend", k, ic, J, MUoJ_REF, SIGMA_MAIN, :numeric))
 end
 
-# ── BLOCK / SHARD SELECTION ────────────────────────────────────────────────────
-# The :numeric block CANNOT share a process with the rest.  [FLAG-RQ1-GC-THREADS]
-#
-# Measured, on 8 identical 0.5 yr GOES-8 propagations: 3.2 s each run serially,
-# >25 min each run under `Threads.@threads` — a >400× per-case slowdown that
-# grows with thread count, and under a step cap the threaded runs blow `maxiters`
-# while the serial ones converge in ~1800 steps.  It is not a bad initial
-# condition (all eight were checked individually) and it is not shared mutable
-# state (`averaged_srp_torques` is pure, returning SVectors).  What it is: the
-# :numeric backend evaluates an N_φ×N_τ = 1800-point quadrature per RHS call,
-# each point calling Elliptic.jl's Jacobi functions, which allocate.  Julia's GC
-# is stop-the-world, so eight threads allocating at that rate spend essentially
-# all their time synchronising.  :analytic has a closed form and does not.
-#
-# The fix is process-level parallelism, not thread-level: separate `julia -t 1`
-# processes have independent heaps and independent GCs.  Hence these two knobs.
-#
-#   RQ1_BLOCKS=main,sigma_near,sigma_far   which blocks to run (default: all)
-#   RQ1_SHARD=k RQ1_NSHARD=n              run every n-th case, offset k (0-based)
-#
-# A sharded run writes to a suffixed CSV; the shards are concatenated afterwards.
-#
-# NOTE FOR THE REPO, NOT JUST FOR THIS SCRIPT: exp9 (GOES8_sim) runs its
-# `NUMERIC_EVERY = 25` cross-check inside its own `Threads.@threads` loop, which
-# is exactly this configuration.  Its `omega_e_tailmean_numeric` column was
-# produced under the same pathology and should not be trusted until re-run this
-# way.  Not touched here — reporting, not silently fixing.
+# BLOCK SELECTION 
+
 const BLOCKS = let s = get(ENV, "RQ1_BLOCKS", "")
     isempty(s) ? nothing : Set(strip.(split(s, ',')))
 end
 const SHARD  = parse(Int, get(ENV, "RQ1_SHARD",  "0"))
 const NSHARD = parse(Int, get(ENV, "RQ1_NSHARD", "1"))
 
-#   RQ1_CASES=33,35,45,...                rerun exactly these case_ids
-#
-# RQ1_CASES was added for the I_d → I_s clamp re-run (src/torque_free.jl).  70 of
-# the 1477 rows in ic_ensemble_goes8.csv died on that DomainError; with the clamp
-# in place they can complete, and ONLY they need redoing — the other 1407 are
-# unaffected, because the clamp is unreachable unless I_d overshoots I_s.
-#
-# case_id IS NOW THE INDEX INTO THE UNFILTERED CASE LIST, not the position within
-# the filtered one.  For a default full run those are the same number, so existing
-# output is unchanged; but it is what makes a subset re-run mergeable back into
-# the parent CSV by id.  `sel` is carried to the writers as ORIG_ID.
-#
-# Filter ORDER is preserved: BLOCKS first, then the shard stride over the
-# survivors, exactly as before — so RQ1_SHARD keeps the meaning the already-
-# written backend shards were produced with.
 const CASE_SEL = let s = get(ENV, "RQ1_CASES", "")
     isempty(s) ? nothing : Set(parse(Int, strip(x)) for x in split(s, ','))
 end
@@ -468,14 +290,13 @@ const TAG = (BLOCKS === nothing ? "" : "_" * join(sort(collect(BLOCKS)), "+")) *
             (NSHARD == 1 ? "" : @sprintf("_shard%02dof%02d", SHARD, NSHARD)) *
             (CASE_SEL === nothing ? "" : "_cases")
 
-# TAG is empty for a full single-process run, so the default filenames are
-# exactly the ones the header advertises.
+
+
 const OUT_MAIN_T   = replace(OUT_MAIN,   ".csv" => TAG * ".csv")
 const OUT_SERIES_T = replace(OUT_SERIES, ".csv" => TAG * ".csv")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Progress (same one-line format as exp9/exp11)
-# ══════════════════════════════════════════════════════════════════════════════
+# Progress
+
 const _done  = Threads.Atomic{Int}(0)
 const _lock  = ReentrantLock()
 const _t0    = Ref(0.0)
@@ -500,9 +321,9 @@ function progress!(ntot, fate)
     end
 end
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PRE-FLIGHT
-# ══════════════════════════════════════════════════════════════════════════════
+
+# PRE-FLIGHT CHECKS
+
 println("="^80)
 println("RQ1 IC ENSEMBLE — GOES-8, ", YEARS, " yr, ", length(cases), " cases on ",
         Threads.nthreads(), " threads")
@@ -536,9 +357,9 @@ nlam = count(ic -> ic.band == "LAM", ICS_MAIN)
         count(ic -> ic.band == "LAM", ICS_SEP), count(ic -> ic.band == "SAM", ICS_SEP),
         minimum(d_sep(ic.Id0) for ic in ICS_SEP), maximum(d_sep(ic.Id0) for ic in ICS_SEP))
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # RUN
-# ══════════════════════════════════════════════════════════════════════════════
+
 println("\nrunning…")
 _t0[] = time()
 results = Vector{Any}(undef, length(cases))
@@ -551,14 +372,6 @@ Threads.@threads for idx in eachindex(cases)
         (c = c, out = out, ωe0 = ωe0, εmax = εmax, t_exit = t_exit, dmin = dmin,
          ncross = ncross, ser = ser, wall = time() - t0, err = "")
     catch e
-        # The failure mode this used to catch — a DomainError from
-        # sqrt(I_s − I_d) inside torquefree_params_SAM when dissipation drives
-        # I_d onto I_s — is FIXED (src/torque_free.jl clamps I_d to I_s;
-        # test/test_Id_clamp.jl).  It cost this ensemble 70 of 1477 rows, all of
-        # which now complete; they were re-run via RQ1_CASES and merged back by
-        # merge_case_rerun.py.  The catch stays because a 1477-case batch should
-        # not lose the other 1476 runs to one bad one, whatever the next bad one
-        # turns out to be.
         (c = c, out = nothing, ωe0 = 2π/c.ic.Pe, εmax = NaN, t_exit = NaN,
          dmin = NaN, ncross = 0, ser = NTuple{5,Float64}[], wall = time() - t0,
          err = first(replace(sprint(showerror, e), ',' => ';', '\n' => ' '), 90))
@@ -568,9 +381,8 @@ Threads.@threads for idx in eachindex(cases)
 end
 println()
 
-# ══════════════════════════════════════════════════════════════════════════════
 # WRITE
-# ══════════════════════════════════════════════════════════════════════════════
+
 open(OUT_MAIN_T, "w") do io
     println(io, "case_id,block,backend,ic_id,alpha0_deg,beta0_deg,Pe_min,",
                 "Id0_over_Is,band0,band_frac0,d_sep0,J,mu_over_J,sigma,omega_e0,",
@@ -616,9 +428,8 @@ open(OUT_SERIES_T, "w") do io
 end
 println("wrote ", OUT_SERIES_T)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SUMMARY — the RQ1 numbers, printed so a failed plot still leaves the finding
-# ══════════════════════════════════════════════════════════════════════════════
+# SUMMARY
+
 ok(rs) = [r for r in rs if r.out !== nothing && r.out.fate !== :error]
 
 println("\n== outcome census ==")
@@ -646,15 +457,7 @@ if nto > 0
     println("  statistic rather than biasing it downward — see the n column below.")
 end
 
-"""
-Relative dispersion of ω̄_e across an ensemble at one time: (p90 − p10)/median.
 
-WHY THIS AND NOT THE STANDARD DEVIATION.  ω̄_e spans two decades across the
-ensemble because P_e0 does, and a handful of runs approach the despin floor.  A
-moment-based spread is then dominated by the tail rather than by the bulk, which
-is the opposite of what "the ensemble has collapsed onto one distribution"
-means.  p90−p10 over the median is scale-free and insensitive to both tails.
-"""
 function rel_dispersion(vals)
     v = sort([x for x in vals if isfinite(x) && x > 0])
     length(v) < 8 && return NaN
@@ -663,18 +466,7 @@ function rel_dispersion(vals)
     return (q(0.90) - q(0.10)) / m
 end
 
-"""
-FORGETTING TIME — the operational definition this ensemble reports.
 
-T_forget(J, μ/J) is the earliest grid time t such that the ensemble's relative
-dispersion of ω̄_e stays below FORGET_TOL for every LATER grid time as well.
-The "and stays" clause matters: dispersion is not monotone (a group can pass
-through a common value on its way somewhere else), and without it the first
-crossing can be a coincidence rather than a collapse.
-
-NaN means the ensemble never collapsed inside the horizon — reported as such,
-not silently replaced by the horizon.
-"""
 const FORGET_TOL = 0.10
 
 function forget_time(rs)

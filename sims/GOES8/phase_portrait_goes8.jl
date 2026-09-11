@@ -1,35 +1,3 @@
-#=
-phase_portrait_goes8.jl — DENSE trajectories for Figure 5's (I_d, β) portrait.
-
-WHY THIS EXISTS SEPARATELY FROM ic_ensemble_goes8.jl.
-
-The ensemble writes its series on a 120-point LOG time grid, which is the right
-grid for measuring when the ensemble's dispersion collapses — the whole question
-there is a decay, and a log grid resolves a decay across four decades with 120
-numbers instead of a million.
-
-It is the WRONG grid for a phase portrait.  Once a trajectory reaches the
-attractor it oscillates, and by ~10 yr the log grid's spacing is wider than the
-oscillation period.  Joining those samples with straight lines draws chords
-across the (I_d, β) plane that no trajectory ever traversed — the plot becomes a
-hairball whose structure is an artefact of the sampling, not of the dynamics.
-This is the same aliasing failure that [FLAG-SKYNET-ALPHA-ALIAS] records for the
-α unwrap in sims/Skynet 1A/skynet_sweep.jl, in a different coordinate.
-
-So the portrait gets its own runs, on a UNIFORM grid dense enough to resolve the
-oscillation, over a window short enough that "dense enough" is affordable:
-
-    N_DENSE points uniformly over 0 … PORTRAIT_YEARS
-
-PORTRAIT_YEARS is deliberately NOT the 100 yr RQ1 horizon.  The transient and
-the limit cycle are both inside the first ~20 yr; the remaining 80 yr add
-oscillation the reader cannot see and cannot be sampled without a much larger
-file.  Figure 5's endpoint panel still uses the full 100 yr ensemble, so nothing
-is hidden — the portrait shows the SHAPE, the endpoint panel shows the OUTCOME.
-
-Run:  julia -t auto --project=. "sims/GOES8/phase_portrait_goes8.jl"
-Writes sims/GOES8/phase_portrait_goes8.csv
-=#
 
 include(joinpath(@__DIR__, "..", "..", "src", "master.jl"))
 using .master

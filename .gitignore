@@ -28,8 +28,7 @@ LocalPreferences.toml
 JuliaLocalPreferences.toml
 
 #files generated as a result
-sims/GOES8/phase_portrait_goes8.jl
-sims/GOES8/ic_ensemble_goes8.jl
+
 *.png
 *.py
 *.log
