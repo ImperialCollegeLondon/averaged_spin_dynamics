@@ -134,6 +134,19 @@ end
 function torquefree_params_SAM(ωe::Real, Id::Real, I::PrincipalInertias)
     Il, Ii, Is = I.Il, I.Ii, I.Is
 
+    # I_d = H²/2T is bounded above by I_s by construction, and I_d = I_s is an
+    # exact fixed point of the averaged flow: there B₁ = B₃ = 0, so ω = (0,ωe,0)
+    # is steady rotation about b̂₂, every az_i M_i term in İ_d vanishes, and the
+    # slug sees no time-varying rate, so h_d = 0.  A trajectory therefore
+    # approaches I_d = I_s asymptotically and cannot cross it exactly
+    # I_d > I_s is finite-step overshoot of that attractor, ~1e-15
+    # relative in practice.  Clamping puts the state exactly ON the attractor,
+    # which is the correct limiting behaviour, not an approximation and it is
+    # what the k² line four lines below has done.
+    # Clamped here at entry rather than inside each sqrt so that B₁, B₃, τ_rate,
+    # k² and n_param all describe the same I_d. 
+    Id = min(Id, Is)
+
     # Body-rate amplitudes (Eq. A11): ω₁=B₁ sn, ω₂=B₂ dn, ω₃=B₃ cn
     B₁ = ωe * sqrt(Id * (Is - Id) / (Ii * (Is - Ii)))   # b̂₁ → Ii
     B₂ = ωe * sqrt(Id * (Id - Il) / (Is * (Is - Il)))   # b̂₂ → Is
@@ -185,7 +198,7 @@ function tumbling_periods(ωe::Real, Id::Real, I::PrincipalInertias, ::LAM)
     k, n, τ_rate, _, _, _ = torquefree_params_LAM(ωe, Id, I)
     Kval = elliptic_K(k)
     Πc   = elliptic_Pi_complete(n, k)                       # Π(K; n)
-    P_φ  = (2π / ωe) * (Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)  # A9
+    P_φ  = (2π / ωe) * (Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)^(-1)  # A9
     P_ψ  = 4Kval / τ_rate                                   # A10
     return P_φ, P_ψ
 end
@@ -195,7 +208,7 @@ function tumbling_periods(ωe::Real, Id::Real, I::PrincipalInertias, ::SAM)
     k, n, τ_rate, _, _, _ = torquefree_params_SAM(ωe, Id, I)
     Kval = elliptic_K(k)
     Πc   = elliptic_Pi_complete(n, k)
-    P_φ  = (2π / ωe)*(Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)  # A9 with A13 n
+    P_φ  = (2π / ωe)*(Il / Id) * (1 - (Is - Il) / Is * Πc / Kval)^(-1)  # A9 with A13 n
     P_ψ  = 4Kval / τ_rate                                   # A15
     return P_φ, P_ψ
 end

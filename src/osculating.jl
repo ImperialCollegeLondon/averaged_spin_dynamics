@@ -8,7 +8,7 @@ to derive these quantities in the correct reference and with the correct equatio
 """
 The Principal inertias are the moment of inertias along the principal axes of the body
 and are how we determine which mode the tumbling regime is in.
-Il<Ii<Is so let's set that up
+Il<Ii<Is
 """
 
 struct PrincipalInertias
@@ -64,7 +64,7 @@ Base.@kwdef struct PerturbationConfig
     gravity_gradient::Bool = true
     srp_backend::Symbol   = :numeric    # :numeric | :analytic | :fourier
     σ_branch::Int         = 1           # LAM±/SAM± spin branch
-    resonant::Bool        = true
+    resonant::Bool        = false       # ended up not using due to unsolved errors
     μ::Float64            = 1.0e-3      # get these from B&S
     J::Float64            = 1.0
     orbit_i::Float64      = 0.0

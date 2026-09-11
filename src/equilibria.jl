@@ -49,20 +49,7 @@ function _srp_torques(shape::ShapeModel, β::Real, ωe::Real, Id::Real,
                                     σ = cfg.σ_branch)
     end
 end
-"""
-    find_equilibrium(shape, I, β; μ_over_J=1e-3, regime=SAM(), kwargs...)
-        → AveragedEquilibrium | nothing
-
-Solve B&S 2022 Eqs. (42–46) for the averaged equilibrium at prescribed coning
-angle `β` and dissipation ratio `μ_over_J`, using the reverse algorithm above.
-Returns `nothing` if no admissible equilibrium exists for this β (no M̄_z root
-in the band, non-positive H̄, or İ_d,yorp ≥ 0 so no J > 0 can balance Eq. 45).
-
-`regime` selects which inertia band to search for the Eq. (44) root
-(`SAM()` — the paper's case — or `LAM()`).  `σ` follows `cfg.σ_branch`.
-Keyword `Id_pad` keeps the bisection off the band edges (the separatrix and the
-uniform-spin limit are both degenerate).
-"""
+# Essentially another validity checker to check if there is an equilirium and will come back as nothing if there is no solution
 function find_equilibrium(shape::ShapeModel, I::PrincipalInertias, β::Real;
                           μ_over_J::Real = 1e-3,
                           regime::Regime = SAM(),
@@ -74,7 +61,7 @@ function find_equilibrium(shape::ShapeModel, I::PrincipalInertias, β::Real;
                           Id_pad::Real = 1e-6,
                           N_φ::Int = 90, N_τ::Int = 180,
                           P_SRP::Real = P_SRP_1AU)
-    μ_over_J <= 1e-3 || @warn "μ/J = $μ_over_J exceeds the averaged-dissipation validity ceiling 1e-3 s⁻¹ (CLAUDE.md); result is outside the model's stated range."
+    μ_over_J <= 1e-3 || @warn "μ/J = $μ_over_J exceeds the averaged-dissipation validity ceiling 1e-3 s⁻¹  result is outside the model's stated range."
 
     # Band for the Eq. (44) bisection.  ωe is irrelevant to the torques, so any
     # positive placeholder works while solving for Ī_d.

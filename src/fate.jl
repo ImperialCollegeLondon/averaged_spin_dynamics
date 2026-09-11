@@ -13,7 +13,7 @@ struct SpinOutcome
     Id_final::Float64
     α_final::Float64
 end
-
+# Seeing if any despun
 
 function spin_termination_callbacks(; ωe_floor::Real = 1e-8,
                                      ωe_ceiling::Real = 1.0)
@@ -24,7 +24,7 @@ function spin_termination_callbacks(; ωe_floor::Real = 1e-8,
                                integ -> terminate!(integ))
     return CallbackSet(lower, upper)
 end
-
+# Seeing what the ultimate spin state is, spin up, despin, or cycling
 function classify_spin_outcome(sol, tf::Real;
                                ωe_floor::Real = 1e-8, ωe_ceiling::Real = 1.0,
                                nsample::Int = 2000, ripple_tol::Real = 1e-3)

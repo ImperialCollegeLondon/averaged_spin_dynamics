@@ -49,9 +49,6 @@ Average precession period of b̂₃ about H, B&S Dec-2021 Eq. (A11):
 
 Equivalently φ̄̇ = (H/I_l)[1 − ((I_s−I_l)/I_s)Π/K]  (Eq. B1), with H = I_d ω_e.
 
-**Not** `tumbling_periods(...)[1]` — see the [FLAG-PPHI] note in the module
-docstring.  Validated against a torque-free Layer-A propagation to within the
-±2% true-vs-average spread the paper itself documents (its Fig. 4).
 """
 function _res_Pphi(ωe::Real, Id::Real, I::PrincipalInertias, regime::Regime)
     k, n_c, _, _, _, _ = _res_params(ωe, Id, I, regime)

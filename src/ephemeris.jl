@@ -9,7 +9,7 @@ function sun_direction_ecliptic(t::Real; t0::Real = 0.0)
     return SVector{3,Float64}(cos(λ), sin(λ), 0.0)
 end
 
-# quaternion
+# quaternion conversion
 
 function quat_normalize(β)
     q = SVector{4,Float64}(β[1], β[2], β[3], β[4])

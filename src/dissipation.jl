@@ -1,5 +1,5 @@
 
-# Full-model slug EOM (truth)
+# Full-model slug EOM
 
 function slug_rates(β, ω, σ, Idiag, μ::Real, J::Real, M)
     I1, I2, I3 = Idiag
@@ -96,21 +96,14 @@ function t_coefficients(avg::OmegaAverages, I::PrincipalInertias, μ::Real, J::R
     w1, w2, w3 = avg.w1, avg.w2, avg.w3
     w12, w13, w23 = avg.w12, avg.w13, avg.w23
     r = (μ/J)^2
-
-    # NOTE — CORRECTED PAPER TYPO in the diagonal coefficients (A1, A5, A8).
-    # The paper prints the ⟨ω_j²ω_k²⟩ factor as (I_j²+I_k²−I_jI_k)/I_i², but t_ii ≡
-    # ∂²⟨D²⟩/∂x_i² requires the PERFECT SQUARE (I_j²+I_k²−2I_jI_k)/I_i² = (I_j−I_k)²/I_i²
-    # (matching the same factor in A4/A7/A9). Verified to machine precision against the
-    # numeric ⟨D²⟩ Hessian (`dbar2`); the paper form is off by up to ~45×. See
-    # docs/BS2022_equations.md [[FLAG-TYPO A1/A5/A8]].
-    t11 = 2*( w12 + w13 + w23*(Il - Is)^2/Ii^2 + w1*r )                           # A1 (corrected)
+    t11 = 2*( w12 + w13 + w23*(Il - Is)^2/Ii^2 + w1*r )                           # A1 
     t12 = 2*( w23*(Il - Is)/Ii - w12 - w13*(Ii - Il)/Is )                         # A2
     t13 = 2*( -w13 - w23*(Il - Is)/Ii - w12*(Ii - Is)/Il )                        # A3
     t14 = 2*( w23*(Il - Is)^2/Ii^2 - w12*(Ii - Is)/Il - w13*(Ii - Il)/Is )        # A4
-    t22 = 2*( w12 + w23 + w13*(Ii - Il)^2/Is^2 + w2*r )                           # A5 (corrected)
+    t22 = 2*( w12 + w23 + w13*(Ii - Il)^2/Is^2 + w2*r )                           # A5 
     t23 = 2*( w12*(Ii - Is)/Il - w23 + w13*(Ii - Il)/Is )                         # A6
     t24 = 2*( w13*(Ii - Il)^2/Is^2 + w23*(Il - Is)/Ii + w12*(Ii - Is)/Il )        # A7
-    t33 = 2*( w13 + w23 + w12*(Ii - Is)^2/Il^2 + w3*r )                           # A8 (corrected)
+    t33 = 2*( w13 + w23 + w12*(Ii - Is)^2/Il^2 + w3*r )                           # A8 
     t34 = 2*( w12*(Ii - Is)^2/Il^2 - w23*(Il - Is)/Ii + w13*(Ii - Il)/Is )        # A9
 
     T = @SMatrix [t11 t12 t13; t12 t22 t23; t13 t23 t33]

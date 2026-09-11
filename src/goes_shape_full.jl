@@ -43,21 +43,21 @@ function goes8_shape_full(; θ_sa::Real = deg2rad(17.0), optical::Symbol = :bs,
 
     Rsa = _rotz(-θ_sa)   # array rotation about −b̂₃
 
-    # ── Solar panel (front/back), Table 5; rotated by θ_sa about −b̂₃ ──
+    # Solar panel (front/back), Table 5; rotated by θ_sa about −b̂₃
     let n̂ = _unit((-0.004,-0.217,0.976)), r̂ = _unit((0.979,0.171,-0.119))
         r = _mag_from_x(r̂, _GOES8_PANEL_CX) * r̂
         n_b = Rsa * _goes8_perm(n̂); r_b = Rsa * _goes8_perm(r)
         push!(fs, Facet(4.81*2.68, n_b,  r_b, op.panel_f...))
         push!(fs, Facet(4.81*2.68, -n_b, r_b, op.panel_b...))
     end
-    # ── Trim tab (front/back), Table 5; NOT rotated by θ_sa (Albuja: tab rotated 0°) ──
+    # Trim tab (front/back), Table 5 Albuja
     let n̂ = _unit((-0.004,-0.217,0.976)), r̂ = _unit((0.992,0.104,-0.075))
         r = _mag_from_x(r̂, _GOES8_TAB_CX) * r̂
         n_b = _goes8_perm(n̂); r_b = _goes8_perm(r)
         push!(fs, Facet(1.30*1.30, n_b,  r_b, op.tab_f...))
         push!(fs, Facet(1.30*1.30, -n_b, r_b, op.tab_b...))
     end
-    # ── Bus: box at bus_c, axes/half-extents from Table 5 normals ──
+    # Bus: box at bus_c, axes/half-extents from Table 5 normals
     let bus_c = SVector(1.01, 1.14, -0.62),
         x̂ = _unit((0.999,-0.013,0.001)), B̂ = _unit((0.006,0.537,0.844)), Ĉ = _unit((-0.012,-0.844,0.537))
         for (n̂, he, A) in ((x̂,1.31,2.43*2.43), (-x̂,1.31,2.43*2.43),
@@ -67,7 +67,7 @@ function goes8_shape_full(; θ_sa::Real = deg2rad(17.0), optical::Symbol = :bs,
             push!(fs, Facet(A, _goes8_perm(n̂), _goes8_perm(r), op.bus...))
         end
     end
-    # ── Solar sail: base disc + lateral surface (see FLAG-GEOM in the docstring) ──
+    # Solar sail: base disc + lateral surface
     let R = 1.635, h = 1.63,
         base_A = π*R^2, lat_A = π*R*sqrt(R^2 + h^2)
         if sail === :albuja

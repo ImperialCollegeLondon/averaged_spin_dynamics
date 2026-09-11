@@ -109,7 +109,7 @@ function propagate_averaged(I::PrincipalInertias, state0::OsculatingState, tspan
     cfg.resonant && error(
         "resonant averaged dynamics are gated (FLAG-RESONANCE); set cfg.resonant=false.")
 
-    # Averaged-dissipation validity bound (CLAUDE.md; B&S 2022 §II.C).  Checked
+    # Averaged-dissipation validity bound (B&S 2022 §II.C).  Checked
     # only when dissipation is actually on.  Relative tolerance so the documented
     # figure configurations sitting exactly at μ/J = 1e-3 are not rejected.
     if cfg.dissipation
@@ -125,4 +125,57 @@ function propagate_averaged(I::PrincipalInertias, state0::OsculatingState, tspan
     p    = (I, shape, cfg, n, N_φ, N_τ, P_SRP)
     prob = ODEProblem(_averaged_rhs, u0, tspan, p)
     return solve(prob, solver; reltol = reltol, abstol = abstol, kwargs...)
+end
+
+# Validity diagnostics (FLAG-AVERAGING, FLAG-SIGMA)
+
+
+# measures if the averaging remains valid by assessing yhe drift of the coning angle
+function epsilon_beta(state::OsculatingState, I::PrincipalInertias,
+                      shape::ShapeModel, cfg::PerturbationConfig; kwargs...)
+    regime = classify_regime(state.Id, I)
+    regime isa Separatrix && return Inf
+
+    ωe = omega_e(state.H, state.Id)
+    k, _, τ_rate, _, _, _ = regime isa LAM ?
+        torquefree_params_LAM(ωe, state.Id, I) :
+        torquefree_params_SAM(ωe, state.Id, I)
+    P_ψ = 4 * elliptic_K(k) / τ_rate            # Eqs. (A10)/(A15)
+    isfinite(P_ψ) || return Inf
+
+    β̇ = averaged_eom(state, I, shape, cfg; kwargs...)[2]
+    return abs(β̇) * P_ψ
+end
+
+# follows the validity calcualtion and warns if it crosses significance threshold of 0.1
+function averaging_validity_callback(I::PrincipalInertias, shape::ShapeModel,
+                                     cfg::PerturbationConfig;
+                                     ε_max::Real = 0.1,
+                                     terminate_run::Bool = false,
+                                     eom_kwargs...)
+    condition = (u, t, integ) -> begin
+        st = OsculatingState(u[1], u[2], u[3], u[4])
+        ε = epsilon_beta(st, I, shape, cfg; eom_kwargs...)
+        isfinite(ε) ? ε - ε_max : one(float(ε_max))
+    end
+    affect! = integ -> begin
+        @warn "averaged model: ε_β exceeded $ε_max at t = $(integ.t) s " *
+              "(ω_e = $(integ.u[3]/integ.u[4]) rad/s); results beyond this " *
+              "time are model-invalid, not a physical fate." maxlog = 1
+        terminate_run && terminate!(integ)
+    end
+    return ContinuousCallback(condition, affect!)
+end
+
+# determines if a separatrix crosssing flips the spin direction of the debris
+function separatrix_crossing_callback(I::PrincipalInertias;
+                                      terminate_run::Bool = false)
+    condition = (u, t, integ) -> u[4] - I.Ii
+    affect! = integ -> begin
+        @warn "averaged model: crossed the LAM/SAM separatrix (I_d = I_i = " *
+              "$(I.Ii) kg·m²) at t = $(integ.t) s with σ_branch held fixed; " *
+              "the σ label after this point is an assumption, not a result." maxlog = 1
+        terminate_run && terminate!(integ)
+    end
+    return ContinuousCallback(condition, affect!)
 end
