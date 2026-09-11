@@ -1,99 +1,17 @@
-#=
-rq1_comparison_objects.jl — FIGURES 8, 9, 10: does the RQ1 answer generalise?
-
-Phase 3 measured, for GOES-8, whether an ensemble of initial conditions forgets
-where it started.  Phases 4's question is whether that answer is a property of
-GOES-8 or of the framework.  Answering it needs the OTHER objects run through
-the SAME ensemble, not a re-read of their existing sweeps — because those sweeps
-disagree with Phase 3's design in three ways that all matter:
-
-  * they never vary α₀ (every existing row starts at α₀ = 0);
-  * they are full-factorial lattices, so their marginal distributions are
-    artefacts of the axis spacing rather than samples; and
-  * they store ENDPOINTS only.  "Forgotten by when" is a statement about the
-    dispersion as a function of time, and no endpoint CSV can answer it.
-
-So all four comparison configurations are re-run here on the identical 96-point
-LHS initial-condition ensemble that Phase 3 used, at the same reference
-dissipation, with the same log time grid.  That is the whole point: the only
-thing that differs between the groups is the OBJECT.
-
-CONFIGURATIONS
-
-  goes8_sa17     GOES-8, θ_sa = 17°, :bs optics — the Phase 3 baseline, re-run
-                 here so the comparison is like-for-like rather than copied
-  goes8_sa00     GOES-8, θ_sa =  0°, :bs optics
-  goes8_albuja   GOES-8, θ_sa = 17°, :albuja optics
-  telstar401     Telstar 401 (dissipation + GG only — see below)
-  skynet1a       Skynet 1A, the asymmetric/triaxial variant from Phase 1
-
-────────────────────────────────────────────────────────────────────────────────
-FIGURE 8 IS NOT GOES-10 AND GOES-12, AND CANNOT BE.       [FLAG-RQ1-NO-GOES1012]
-
-The brief asks for GOES 10/12 "only if θ_sa/reflectivity variants actually exist
-in this repo — report as a gap if not."  Checked, and the answer is split:
-
-  the KNOBS exist.  goes8_shape_full takes θ_sa and optical ∈ (:bs, :albuja).
-  the OBJECTS do not.  There is no goes10_inertia, no goes12_inertia, no
-  goes10_shape, no published θ_sa or optical set for either spacecraft anywhere
-  in this repo.  A repo-wide grep for "GOES-10"/"GOES-12" returns three hits,
-  all of them prose in a comment about where exp9's J range came from.
-
-Inventing a θ_sa and calling the result "GOES-10" would be inventing a number.
-So Figure 8 is reported as a GAP for GOES 10/12, and what is run instead is the
-sensitivity that the existing knobs genuinely support: the same body with its
-solar array at a different angle and with a different published optical set.
-That answers "does the RQ1 result survive a change of torque geometry", which is
-the useful half of the question, and it is labelled as that and not as a second
-spacecraft.
-────────────────────────────────────────────────────────────────────────────────
-
-TELSTAR 401 IS A NULL CONTROL, NOT A YORP CASE.  Its assumed geometry has
-IDENTICALLY ZERO net SRP torque ([FLAG-TELSTAR-INERT] in telstar_shape), so the
-averaged model reduces to internal dissipation + gravity gradient, both of which
-conserve H.  Its outcome is available in closed form, ω̄_e(∞) = ω_e0·(I_d0/I_s),
-which means its ensemble CANNOT forget its initial condition — the endpoint is a
-fixed function of it.  That is exactly what makes it worth running: it is the
-limiting case that shows the forgetting in Figures 4 and 8 is DRIVEN BY THE
-TORQUE and is not an artefact of the dissipation model or of the metric.
-
-SKYNET 1A rests on invented antenna geometry ([FLAG-SKYNET-INVENTED-HORN]) and a
-rigid-body assumption defended only for its defunct state
-([FLAG-SKYNET-TWOBODY]).  Its RQ1 answer is a statement about that assumed
-shape, not about the real spacecraft.
-
-Run:  julia -t auto --project=. "sims/Figures/rq1_comparison_objects.jl"
-Writes sims/Figures/rq1_comparison_objects.csv
-       sims/Figures/rq1_comparison_objects_series.csv
-=#
 
 include(joinpath(@__DIR__, "..", "..", "src", "master.jl"))
 using .master
 using StaticArrays, LinearAlgebra, Printf, Random
 using DifferentialEquations: DiscreteCallback, CallbackSet, terminate!
 
-# ── ONE OBJECT FAMILY PER PROCESS.                       [FLAG-RQ1-MP-COLLISION]
-# telstar_inertia:105 defines a plain global `mp`, and skynet_inertia:429 defines
-# `const mp`.  Both are included into Main by their shape scripts, so loading both
-# in one process fails with "cannot declare Main.mp constant; it was already
-# declared global".  Neither file is wrong on its own and both follow the same
-# local convention; the collision is a consequence of this script being the first
-# thing to want two objects at once.
-#
-# Deliberately NOT fixed by editing either sibling: telstar_inertia is not mine to
-# rename, and wrapping them in modules would break their own `using .master`,
-# which resolves against Main.  Instead RQ1_CMP selects one family per process and
-# the three CSVs are concatenated afterwards — which costs nothing, since the
-# ensembles are independent by construction.
 const WHICH = get(ENV, "RQ1_CMP", "goes8")
 WHICH in ("goes8", "telstar", "skynet") ||
     error("RQ1_CMP must be goes8 | telstar | skynet; got $WHICH")
 WHICH == "telstar" && include(joinpath(@__DIR__, "..", "Telstar 402", "telstar_shape"))
 WHICH == "skynet"  && include(joinpath(@__DIR__, "..", "Skynet 1A", "skynet_shape"))
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GRID — matched to sims/GOES8/ic_ensemble_goes8.jl, deliberately
-# ══════════════════════════════════════════════════════════════════════════════
+# GRID — matched to sims/GOES8/ic_ensemble_goes8.jl
+
 const SMOKE   = get(ENV, "RQ1_SMOKE", "0") == "1"
 const YEARS   = SMOKE ? 2.0 : 100.0
 const N_IC    = SMOKE ? 6 : 96
@@ -132,7 +50,7 @@ configs =
          note = "invented antenna geometry"),
     ]
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 function maximin_lhs(n::Int, d::Int; ncand::Int = 60,
                      rng::AbstractRNG = MersenneTwister(IC_SEED))
     best = zeros(d, n); bestsep = -Inf
@@ -212,7 +130,6 @@ function run_one(cfgobj, ic)
     return out, ωe0, εmax, ncross, ser
 end
 
-# ══════════════════════════════════════════════════════════════════════════════
 println("="^80)
 println("RQ1 COMPARISON OBJECTS — ", YEARS, " yr, ", N_IC, " shared LHS ICs x ",
         length(configs), " configurations on ", Threads.nthreads(), " threads")

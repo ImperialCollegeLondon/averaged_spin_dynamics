@@ -1,81 +1,8 @@
-#=
-verification_full_vs_averaged.jl — FIGURE 1.  Does the tumbling-averaged model
-reproduce the full Euler truth model for GOES-8?
 
-WHICH OF THE TWO CANDIDATES, AND WHY.  The brief offered (a) a direct
-time-history overlay of the full Euler propagation against the averaged
-propagation for one representative GOES-8 IC, or (b) reproduction of a specific
-published B&S quantity.  (a) is used.  There is no ground-truth B&S image or
-table in this repo to reproduce, so (b) would mean reconstructing a target from
-a prose description and then declaring agreement with it — unfalsifiable.  (a)
-is computed end-to-end from this repo's own two propagators and produces a
-number that can be wrong.
-
-════════════════════════════════════════════════════════════════════════════════
-SRP ONLY — DELIBERATELY.  This figure verifies THE AVERAGING STEP, and nothing
-else.  `cfg` has dissipation = false and gravity_gradient = false, and the full
-model is driven by `srp_torque_fn` alone, because:
-
-  * The full Euler model in src/dynamics_full.jl takes a torque function and
-    integrates rigid-body Euler equations.  It has NO internal dissipation —
-    that is a separate model (`propagate_full_slug`, M4) resting on its own
-    steady-state slug approximation.
-  * Averaged GG likewise carries its own approximation (B&S 2022 Eqs. 32-36).
-
-Including either would fold three approximations into one residual and make a
-disagreement un-attributable.  With SRP alone, any deviation measured below is
-attributable to tumbling-cycle averaging and to nothing else.  Figure 1 is
-therefore a test of the M3/M6 averaging, not an end-to-end model validation —
-that distinction belongs in the caption.
-════════════════════════════════════════════════════════════════════════════════
-THE O FRAME IS PARTLY INFERRED, NOT DOCUMENTED.  [FLAG-FIG1-OFRAME]
-
-The averaged state (α, β, H, I_d) lives in the heliocentric O frame, and
-converting a full-model state (quaternion, ω) into it requires knowing that
-frame.  Only part of it is pinned down by the code:
-
-  * Ẑ_O = the Sun direction.  UNAMBIGUOUS — `srp_avg_numeric:17-18` states
-    û_H = [HO] Ẑ_O = (−sinβ, 0, cosβ), so β is the Ĥ–Sun angle, and
-    `sun_direction_ecliptic` gives the Sun as (cos λ, sin λ, 0) in the inertial
-    frame with λ = 2π(t−t₀)/yr.
-  * X̂_O, Ŷ_O — the clocking origin for α.  Not stated in prose anywhere, but
-    NOT free either: it is RECOVERABLE from the equations of motion, and this
-    file derives it rather than guessing.
-
-DERIVATION.  With all perturbations off, `averaged_eom` reduces to
-    α̇ = n cos α cos β / sin β        β̇ = n sin α        Ḣ = İ_d = 0
-These are exactly the apparent motion of a vector FIXED in inertial space, seen
-from a frame whose angular velocity is Ω = n X̂_O.  Substituting Ω = n ẑ_N
-instead gives β̇ = −n cos α, which does not match.  So the axis the O frame turns
-about IS its own X̂_O, and since Ẑ_O (the Sun) sweeps the ecliptic, X̂_O must be
-the ecliptic pole:
-
-    X̂_O = ẑ_N = (0, 0, 1)        Ẑ_O = (cos λ, sin λ, 0)        Ŷ_O = Ẑ_O × X̂_O
-
-VERIFIED, not asserted: the torque-free pre-flight below propagates the full
-Euler model with zero torque, extracts (α, β) through this frame, and compares
-against BOTH the closed form (Ĥ fixed in inertial space) and the averaged model.
-All three agree to solver tolerance.  An incorrect frame does not survive that
-test — the first attempt (Ŷ_O = ẑ_N) failed it by up to 1.2 rad.
-
-Note also that `master.jl` exports `alpha_beta_from_Hhat`, `Hhat_from_alpha_beta`,
-`HO_matrix`, `BH_matrix`, `sinβ_guard`, `to_vw` and `from_vw`, NONE of which are
-defined anywhere in src/ — the real names are `a_b_H`, `H_alpha_beta`, `HO_mat`,
-`BH_mat`, `sinβ_prev`, and (v,w) coordinates do not exist at all.  This file uses
-the real ones.                                                 [FLAG-DEAD-EXPORTS]
-════════════════════════════════════════════════════════════════════════════════
-
-Run:  julia --project="../.." verification_full_vs_averaged.jl
-      (from sims/Figures/)
-Writes verification_full_vs_averaged.csv
-=#
 include(joinpath(@__DIR__, "..", "..", "src", "master.jl"))
 using .master
 using Printf, LinearAlgebra, StaticArrays
 
-# The real frame helpers are DEFINED in the module but NOT EXPORTED — master.jl
-# exports the non-existent aliases instead ([FLAG-DEAD-EXPORTS]), so `using`
-# does not bring them in and they must be qualified.
 const a_b_H        = master.a_b_H
 const H_alpha_beta = master.H_alpha_beta
 
@@ -83,7 +10,7 @@ I  = goes8_inertia()
 sh = goes8_shape_full(; θ_sa = deg2rad(17), optical = :bs)
 const IDIAG = inertia_body(I)          # (Ii, Is, Il) — the body-frame ordering
 
-# ── configuration ───────────────────────────────────────────────────────────
+# configuration
 # The representative IC is traj_goes8.jl's, so this figure verifies the model at
 # exactly the state the trajectory figures are drawn from.
 β0      = deg2rad(75.0)
@@ -92,16 +19,11 @@ Id0_rel = 0.3433
 Pe0     = 20.0 * 60.0
 SIGMA   = -1                    # traj_goes8.jl's choice, carried over
 
-YEARS   = 2.0                   # long enough for secular SRP drift to dominate
-                                # the tumbling ripple; short enough that the full
-                                # model is affordable (~35 simulated days per
-                                # wall-second, measured)
-SAVE_DT = 300.0                 # [s] output cadence — ~4 samples per 20-min
-                                # tumbling period, enough to resolve the ripple
-                                # the averaged model is supposed to have removed
+YEARS   = 2.0                   
+SAVE_DT = 300.0                 # [s]
 
-# ── O frame ─────────────────────────────────────────────────────────────────
-# See [FLAG-FIG1-OFRAME].  Columns are X̂_O, Ŷ_O, Ẑ_O in inertial components, so
+# O frame 
+#  Columns are X̂_O, Ŷ_O, Ẑ_O in inertial components, so
 # `ON(t) * v_O = v_N` and `ON(t)' * v_N = v_O`.
 function ON(t::Real; t0::Real = 0.0)
     λ = 2π * (t - t0) / SECONDS_PER_YEAR
@@ -111,12 +33,11 @@ function ON(t::Real; t0::Real = 0.0)
     return hcat(x̂O, ŷO, ẑO)
 end
 
-# ── forward map: full state → osculating elements ───────────────────────────
+#  forward map: full state → osculating elements
 """
     osculating_from_full(q, ω, t) → (α, β, H, Id)
 
-H and I_d are frame-independent; β needs only Ẑ_O (the Sun direction); α needs
-the full O frame and inherits [FLAG-FIG1-OFRAME].
+H and I_d are frame-independent; β needs only Ẑ_O (the Sun direction).
 """
 function osculating_from_full(q, ω, t::Real)
     Hb  = SVector(IDIAG[1]*ω[1], IDIAG[2]*ω[2], IDIAG[3]*ω[3])   # body frame
@@ -129,19 +50,13 @@ function osculating_from_full(q, ω, t::Real)
     return (α = α, β = β, H = Hn, Id = Id)
 end
 
-# ── inverse map: osculating elements → full state ───────────────────────────
+# inverse map: osculating elements → full state
 """
     full_from_osculating(α, β, H, Id; σ) → (q, ω)
 
 Body rates come from the torque-free solution at τ = 0, which is EXACTLY
 consistent with (ω_e, I_d) — verified to 0.0 relative error below.  The attitude
 is then the minimal rotation carrying Ĥ_N onto Ĥ_B.
-
-THE REMAINING FREEDOM IS REAL AND HARMLESS: any further rotation about Ĥ leaves
-(α, β, H, I_d) unchanged and only sets the PHASE within the tumbling cycle.  The
-averaged model has integrated that phase out by construction, so no choice of it
-is more correct than another; the minimal rotation is taken because it is
-deterministic.
 """
 function full_from_osculating(α::Real, β::Real, H::Real, Id::Real;
                               σ::Integer = 1, t::Real = 0.0)
@@ -174,7 +89,7 @@ function full_from_osculating(α::Real, β::Real, H::Real, Id::Real;
     return q, ω
 end
 
-# ── round-trip check: the inverse map must invert the forward map ───────────
+# round-trip check: the inverse map must invert the forward map
 println("="^78)
 println("FIGURE 1 — full Euler vs tumbling-averaged, GOES-8, SRP ONLY")
 println("="^78)
@@ -187,9 +102,7 @@ rt = osculating_from_full(q0, ω0, 0.0)
 
 println("\nround-trip check  (osculating → full → osculating):")
 @printf("   %-10s %18s %18s %12s\n", "", "target", "recovered", "error")
-# Angles are compared ABSOLUTELY, not relatively: α₀ = 0 exactly here, so a
-# relative error divides by ~eps and reports a huge number for a difference of
-# 1e-16 rad.  That is a defect of the metric, not of the round-trip.
+
 for (nm, a, b, rel) in (("α [deg]", rad2deg(α0), rad2deg(rt.α), false),
                         ("β [deg]", rad2deg(β0), rad2deg(rt.β), false),
                         ("H",       H0,          rt.H,           true),
@@ -201,18 +114,7 @@ end
 @printf("   ω_body = (%.6e, %.6e, %.6e)   regime = %s\n",
         ω0[1], ω0[2], ω0[3], typeof(classify_regime(Id0, I)))
 
-# ── TORQUE-FREE PRE-FLIGHT: the test that actually validates the O frame ────
-# With every perturbation off, Ĥ is EXACTLY fixed in inertial space, so (α, β)
-# move only because the O frame turns.  Three independent routes to the same
-# answer must agree: the full Euler model pushed through `osculating_from_full`,
-# the closed form (fixed Ĥ_N re-expressed in the O frame), and the averaged
-# model's own torque-free solution.  This is what caught the first, wrong frame
-# choice (Ŷ_O = ẑ_N), which failed it by 1.2 rad.
-#
-# NOTE the solve is evaluated ONLY at its saveat points.  `saveat` turns off
-# save_everystep, so `sol(t)` between them interpolates across ~11 tumbling
-# periods and is meaningless — a trap that produced a spurious 0.2 rad
-# "disagreement" before it was spotted.
+# TORQUE-FREE PRE-FLIGHT: the test validates the O frame
 println("\n" * "-"^78)
 println("TORQUE-FREE PRE-FLIGHT — validates the O frame against a known answer")
 println("-"^78)
@@ -252,7 +154,7 @@ let tfree = 0.5 * SECONDS_PER_YEAR, npts = 9
     ok || error("torque-free pre-flight failed; refusing to report Figure 1.")
 end
 
-# ── propagate both models ───────────────────────────────────────────────────
+# propagate both models
 tf  = YEARS * SECONDS_PER_YEAR
 ts  = collect(0.0:SAVE_DT:tf)
 
@@ -260,11 +162,7 @@ ts  = collect(0.0:SAVE_DT:tf)
         YEARS, length(ts), SAVE_DT)
 
 t0 = time()
-# maxiters MUST be raised: the default stops this solve part-way through and
-# `solve` only WARNS, so the comparison would silently run over a truncated
-# window.  `save_everystep = false` is what `saveat` defaults to anyway; it is
-# written out because it means sol_f may ONLY be evaluated AT the saveat points
-# — interpolating between them spans ~11 tumbling periods and returns garbage.
+
 sol_f = propagate_full(I, q0, ω0, (0.0, tf); torque = srp_torque_fn(sh),
                        reltol = 1e-12, abstol = 1e-12, saveat = ts,
                        save_everystep = false, maxiters = Int(1e9))
@@ -274,18 +172,8 @@ sol_f.t[end] >= tf - SAVE_DT || error(
 @printf("   full Euler:  %6.1f s wall,  %d accepted steps\n",
         time()-t0, sol_f.stats.naccept)
 
-# BOTH backends are propagated, not just the repo's default `:analytic`.  They
-# are not interchangeable here — see [FLAG-BACKEND-SPLIT] and Figure 2 — and
-# running only one would have hidden that.
-#
-# QUADRATURE: the numeric backend runs at its DEFAULT (N_φ, N_τ) = (90, 180)
-# here, not the (180, 360) Figure 2 uses.  Figure 2's convergence table shows
-# the default carries ~1% error in M̄_z; (180, 360) would cut that to 0.08% but
-# costs 4× per right-hand-side evaluation, and a 2 yr propagation at that
-# setting does not finish in reasonable time.  1% on M̄_z is far below the
-# backend-to-backend gap being measured (tens of percent), so it does not affect
-# any conclusion drawn here — but it is the reason the numeric curve is not
-# quoted to better than ~1%.
+# BOTH backends are propagated
+
 function run_avg(backend::Symbol)
     cfg = PerturbationConfig(srp = true, dissipation = false, gravity_gradient = false,
                              srp_backend = backend, σ_branch = SIGMA, resonant = false)
@@ -304,10 +192,8 @@ sol_a   = sol_num          # `sol_a` is the REFERENCE averaged run used below.
                            # Figure 1 itself shows :numeric is the one that
                            # tracks the full Euler truth model.
 
-# ── extract and compare ─────────────────────────────────────────────────────
-# `tt` holds ONLY saveat points of sol_f.  Evaluating sol_f between them would
-# interpolate across ~11 tumbling periods and return nonsense (this cost real
-# time to spot; the torque-free pre-flight above is what exposed it).
+# extract and compare 
+
 tt = [t for t in ts if t <= sol_f.t[end] && t <= sol_a.t[end]]
 full = [osculating_from_full(SVector(u[1],u[2],u[3],u[4]),
                              SVector(u[5],u[6],u[7]), t)
@@ -322,9 +208,7 @@ Id_f = [x.Id     for x in full];  Id_a = [x.Id     for x in avg]
 H_f  = [x.H      for x in full];  H_a  = [x.H      for x in avg]
 α_f  = [x.α      for x in full];  α_a  = [x.α      for x in avg]
 
-# Cycle-mean of the full model: the averaged model predicts the MEAN over one
-# tumbling period, not the instantaneous value, so the raw residual is dominated
-# by ripple that is not error.  Both are reported.
+# Cycle-mean of the full model
 """
     boxcar(y, t, W) → smoothed y
 
@@ -350,7 +234,7 @@ Pψ = tumbling_periods(ωe0, Id0, I)[1]
 β_fm  = boxcar(β_f,  tt, Pψ/2)
 Id_fm = boxcar(Id_f, tt, Pψ/2)
 
-# ── the metric ──────────────────────────────────────────────────────────────
+# the metric
 rms(x) = sqrt(sum(abs2, x) / length(x))
 
 println("\n" * "="^78)
@@ -374,7 +258,7 @@ for W in (0.02, 0.05, 0.10, 0.25, 0.50, 1.00, YEARS)
     end
 end
 
-# Secular drift — the thing an averaged model exists to get right.
+# Secular drift.
 println("\nsecular drift over the full window:")
 @printf("   %-22s %14s %14s %14s\n", "", "ω_e final", "Δω_e/ω_e0", "I_d/I_s final")
 @printf("   %-22s %14.6e %+13.2f%% %14.6f\n", "full Euler (cyc-mean)",
@@ -404,7 +288,7 @@ mr = tt .<= 10Pψ
         100*(maximum(ωe_f[mr])-minimum(ωe_f[mr]))/ωe0,
         (maximum(Id_f[mr])-minimum(Id_f[mr]))/I.Is)
 
-# ── write ───────────────────────────────────────────────────────────────────
+# write 
 open(joinpath(@__DIR__, "verification_full_vs_averaged.csv"), "w") do io
     println(io, "t_yr,omega_e_full,omega_e_full_cycmean,omega_e_num,omega_e_ana," *
                 "beta_full_deg,beta_full_cycmean_deg,beta_num_deg,beta_ana_deg," *

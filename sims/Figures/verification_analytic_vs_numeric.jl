@@ -1,57 +1,4 @@
-#=
-verification_analytic_vs_numeric.jl — FIGURE 2.  Do the two averaged-SRP
-backends agree?
 
-PRODUCIBLE: yes.  Phase 0 confirmed this repo HAS an analytic backend
-(`src/srp_avg_analytic`, M6, `averaged_srp_torques_analytic`) alongside the
-numeric one (`src/srp_avg_numeric`, M3, `averaged_srp_torques`).  Figure 2 is
-therefore computable and is not the not-producible case the brief allowed for.
-
-WHAT IS COMPARED, AND WHY THESE COMPONENTS.  `AveragedTorques` carries two
-things, and BOTH feed the equations of motion:
-
-  * `M_H = (M̄x, M̄y, M̄z)` in the H frame.  M̄_z alone drives Ḣ (Eq. 37), i.e.
-    the spin rate.  M̄x, M̄y drive β̇ and α̇ (Eqs. 35-36) — they move Ĥ but not |H|.
-  * `azM = (⟨a_z1 M_1⟩, ⟨a_z2 M_2⟩, ⟨a_z3 M_3⟩)` in the body frame, which is the
-    ENTIRE YORP part of İ_d (Eq. 39) and therefore decides which rotation mode
-    the body ends up in.
-
-Comparing only |M̄| would hide a sign error in M̄_z under a much larger transverse
-component, so each is reported separately and the İ_d combination is formed
-explicitly.
-
-DEVIATION IS SHOWN, NOT IMPLIED BY OVERLAP — the brief's requirement.  The
-output is a signed/relative deviation field over a grid of (I_d/I_s, β), written
-to CSV and rendered as heatmaps, with the separatrix I_d = I_i drawn on.
-
-════════════════════════════════════════════════════════════════════════════════
-WHY THIS FIGURE MATTERS MORE THAN A ROUTINE CROSS-CHECK.  [FLAG-BACKEND-SPLIT]
-
-Figure 1's SRP-only comparison against the FULL EULER TRUTH MODEL found that the
-two backends are not interchangeable:
-
-  * `:numeric` tracks the full model closely — β within 2-3°, I_d within 0.01,
-    ω_e within ~2% over 0.25 yr.
-  * `:analytic` departs within weeks: by t = 0.05 yr its I_d/I_s is 0.57 against
-    the truth model's 0.39, and by t = 0.125 yr its β has run to 175° and parked
-    at the α coordinate pole, where the truth model's β never exceeds 160°.
-
-and a direct evaluation at the GOES-8 trajectory IC (β = 75°, I_d/I_s = 0.3433)
-gives M̄_z = +1.617e-8 (numeric) against -2.845e-8 (analytic) — OPPOSITE SIGNS,
-on the one component that sets whether the body spins up or down.
-
-That matters beyond this figure because `srp_backend = :analytic` is what
-sims/GOES8/GOES8_sim, sims/Telstar 402/telstar_sweep.jl,
-sims/Mass Sensitivity/inertia_sweep.jl and sims/Skynet 1A/* all use.  This
-figure's job is to map WHERE the two disagree so the reach of that can be
-judged.  It does not by itself establish which is right — but Figure 1's
-comparison against the full Euler model does, and it favours `:numeric`.
-════════════════════════════════════════════════════════════════════════════════
-
-Run:  julia --project="../.." verification_analytic_vs_numeric.jl
-      (from sims/Figures/)
-Writes verification_analytic_vs_numeric.csv
-=#
 include(joinpath(@__DIR__, "..", "..", "src", "master.jl"))
 using .master
 using Printf, LinearAlgebra, StaticArrays
@@ -59,9 +6,8 @@ using Printf, LinearAlgebra, StaticArrays
 I  = goes8_inertia()
 sh = goes8_shape_full(; θ_sa = deg2rad(17), optical = :bs)
 
-# ── grid ────────────────────────────────────────────────────────────────────
-# I_d is swept by BAND FRACTION so both regimes are resolved regardless of how
-# wide each band is, and the separatrix is never straddled by a cell.
+# grid
+
 N_BAND  = 40                     # per regime
 N_BETA  = 48
 SIGMA   = -1                     # GOES-8's choice throughout this repo
@@ -74,9 +20,7 @@ sam(f) = I.Ii/I.Is + f*(I.Is - I.Ii)/I.Is
 rs = [lam.(range(0.01, 0.985, length = N_BAND)) ; sam.(range(0.015, 0.99, length = N_BAND))]
 βs = range(deg2rad(1.0), deg2rad(179.0), length = N_BETA)
 
-# ── numeric-backend convergence, established BEFORE it is used as reference ──
-# The numeric backend is a quadrature; its answer is only a reference if it has
-# converged.  Defaults are N_φ=90, N_τ=180.
+# numeric-backend convergence
 println("="^78)
 println("FIGURE 2 — analytic vs numeric averaged-SRP backends, GOES-8")
 println("="^78)
@@ -94,7 +38,7 @@ let β = deg2rad(75.0), Id = 0.3433*I.Is
 end
 const NPHI, NTAU = 180, 360      # 2× the default, checked above
 
-# ── sweep ───────────────────────────────────────────────────────────────────
+# sweep 
 @printf("\ngrid: %d I_d (%d LAM + %d SAM) × %d β = %d states, σ=%+d, numeric at (%d,%d)\n",
         length(rs), N_BAND, N_BAND, N_BETA, length(rs)*N_BETA, SIGMA, NPHI, NTAU)
 
@@ -127,12 +71,7 @@ for r in rs, β in βs
 end
 @printf("evaluated %d states in %.1f s\n", length(rows), time()-t0)
 
-# ── report ──────────────────────────────────────────────────────────────────
-# Scale-relative deviation: |a − n| / max|n| over the whole grid, per component.
-# Dividing by the LOCAL |n| would blow up at the many places where a component
-# passes through zero, reporting "infinite disagreement" at points where both
-# backends agree that the torque is nil.  A global scale is the honest choice
-# and is stated on the figure.
+# report
 scale_mz = maximum(abs(x.mz_n) for x in rows)
 scale_mp = maximum(abs(x.mp_n) for x in rows)
 scale_id = maximum(abs(x.id_n) for x in rows)
